@@ -1,0 +1,504 @@
+import React, { useState, useEffect } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { Api, imageSrc } from '../api';
+import { Modal } from '../components/Panel';
+
+const isToday = (dateString) => {
+    if (!dateString) return false;
+    const date = new Date(dateString);
+    const today = new Date();
+    return date.getDate() === today.getDate() &&
+           date.getMonth() === today.getMonth() &&
+           date.getFullYear() === today.getFullYear();
+};
+
+function Home() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialCategory = searchParams.get('categoryId') ? Number(searchParams.get('categoryId')) : null;
+  const initialSeller = searchParams.get('sellerId') ? Number(searchParams.get('sellerId')) : null;
+  const [categories, setCategories] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [activeCategoryId, setActiveCategoryId] = useState(initialCategory);
+  const [activeSellerId, setActiveSellerId] = useState(initialSeller);
+
+  // Detallı axtarış modalı və filtrlər
+  const [showFilterModal, setShowFilterModal] = useState(false);
+  const [filterBrandId, setFilterBrandId] = useState('');
+  const [filterModelId, setFilterModelId] = useState('');
+  const [filterPartTypeId, setFilterPartTypeId] = useState('');
+  const [filterQualityTypeId, setFilterQualityTypeId] = useState('');
+  const [minPrice, setMinPrice] = useState('');
+  const [maxPrice, setMaxPrice] = useState('');
+  const [sortOrder, setSortOrder] = useState('');
+
+  // Dropdown məlumatları
+  const [brands, setBrands] = useState([]);
+  const [models, setModels] = useState([]);
+  const [partTypes, setPartTypes] = useState([]);
+  const [qualityTypes, setQualityTypes] = useState([]);
+  
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
+
+  const fetchProducts = (
+    search = searchTerm,
+    categoryId = activeCategoryId,
+    sellerId = activeSellerId,
+    p = page,
+    pSize = pageSize,
+    extra = {}
+  ) => {
+    setLoading(true);
+    const bId = extra.brandId !== undefined ? extra.brandId : filterBrandId;
+    const mId = extra.modelId !== undefined ? extra.modelId : filterModelId;
+    const ptId = extra.partTypeId !== undefined ? extra.partTypeId : filterPartTypeId;
+    const qtId = extra.qualityTypeId !== undefined ? extra.qualityTypeId : filterQualityTypeId;
+    const mnP = extra.minPrice !== undefined ? extra.minPrice : minPrice;
+    const mxP = extra.maxPrice !== undefined ? extra.maxPrice : maxPrice;
+    const sOrder = extra.sortOrder !== undefined ? extra.sortOrder : sortOrder;
+
+    Api.catalog({
+      searchString: search,
+      categoryId: categoryId || undefined,
+      sellerId: sellerId || undefined,
+      brandId: bId ? Number(bId) : undefined,
+      modelId: mId ? Number(mId) : undefined,
+      partTypeId: ptId ? Number(ptId) : undefined,
+      qualityTypeId: qtId ? Number(qtId) : undefined,
+      minPrice: mnP ? Number(mnP) : undefined,
+      maxPrice: mxP ? Number(mxP) : undefined,
+      sortOrder: sOrder || undefined,
+      pageNumber: p,
+      pageSize: pSize
+    })
+      .then(data => {
+        if (data) {
+          setProducts(data.items || []);
+          setTotalPages(data.totalPages || 1);
+          setTotalItems(data.totalItems || 0);
+        } else {
+          setProducts([]);
+        }
+      })
+      .catch(err => { console.error("Error fetching products:", err); setProducts([]); })
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    Api.categories()
+      .then(data => setCategories(data || []))
+      .catch(err => console.error("Error fetching categories:", err));
+
+    Api.qualityTypes()
+      .then(data => setQualityTypes(data || []))
+      .catch(() => setQualityTypes([]));
+
+    setActiveCategoryId(initialCategory);
+    setActiveSellerId(initialSeller);
+    fetchProducts('', initialCategory, initialSeller);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialCategory, initialSeller]);
+
+  // Modal daxilində kateqoriya dəyişəndə brendlər və hissə növlərini çək
+  useEffect(() => {
+    if (!activeCategoryId) {
+      setBrands([]);
+      setPartTypes([]);
+      setModels([]);
+      return;
+    }
+    Api.brandsByCategory(activeCategoryId).then(setBrands).catch(() => setBrands([]));
+    Api.partTypesByCategory(activeCategoryId).then(setPartTypes).catch(() => setPartTypes([]));
+  }, [activeCategoryId]);
+
+  // Modal daxilində brend dəyişəndə modelləri çək
+  useEffect(() => {
+    if (!activeCategoryId || !filterBrandId) {
+      setModels([]);
+      return;
+    }
+    Api.modelsByBrand(activeCategoryId, filterBrandId).then(setModels).catch(() => setModels([]));
+  }, [activeCategoryId, filterBrandId]);
+
+  const handleApplyFilter = (e) => {
+    if (e) e.preventDefault();
+    setShowFilterModal(false);
+    setPage(1);
+    fetchProducts(searchTerm, activeCategoryId, activeSellerId, 1, pageSize);
+  };
+
+  const handleResetFilter = () => {
+    setActiveCategoryId(null);
+    setFilterBrandId('');
+    setFilterModelId('');
+    setFilterPartTypeId('');
+    setFilterQualityTypeId('');
+    setMinPrice('');
+    setMaxPrice('');
+    setSortOrder('');
+    setShowFilterModal(false);
+    setPage(1);
+    setSearchParams({});
+    fetchProducts(searchTerm, null, activeSellerId, 1, pageSize, {
+      brandId: '', modelId: '', partTypeId: '', qualityTypeId: '', minPrice: '', maxPrice: '', sortOrder: ''
+    });
+  };
+
+  const hasActiveFilters = Boolean(
+    activeCategoryId || filterBrandId || filterModelId || filterPartTypeId || filterQualityTypeId || minPrice || maxPrice || sortOrder
+  );
+
+  return (
+    <div className="container">
+      <section className="hero-section text-center" style={{ justifyContent: 'center' }}>
+        <div className="hero-content" style={{ width: '100%', maxWidth: '900px', margin: '0 auto', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <div className="hero-subtitle" style={{ justifyContent: 'center' }}>Ustalar və anbarlar üçün</div>
+          <h1 className="hero-title">Doğru hissəni<br/><span className="text-accent">tez tap.</span></h1>
+          <p className="hero-desc">Telefon, planşet və noutbuk ehtiyat hissələri.<br/>Yoxlanılmış satıcılardan, real stokla.</p>
+          
+          <form className="w-100" style={{ maxWidth: '900px' }} onSubmit={(e) => { e.preventDefault(); setPage(1); fetchProducts(searchTerm, activeCategoryId, activeSellerId, 1, pageSize); }}>
+            <div className="search-box mb-2 d-flex align-items-center" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: '50px', padding: '0.5rem 1rem' }}>
+              <i className="bi bi-search text-muted me-2 flex-shrink-0"></i>
+              <input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Brend, model və ya detal adı yazın (məsələn, iPhone 16 ekran)..." style={{ flex: 1, background: 'transparent', border: 'none', color: 'var(--text-main)', outline: 'none', minWidth: 0, textOverflow: 'ellipsis' }} />
+              
+              <button 
+                type="button" 
+                className="btn p-0 position-relative ms-2 flex-shrink-0" 
+                onClick={() => setShowFilterModal(true)}
+                title="Detallı axtarış və filtrlər"
+                style={{ border: 'none', outline: 'none' }}
+              >
+                <i className="bi bi-sliders text-accent" style={{ fontSize: '1.25rem' }}></i>
+                {hasActiveFilters && (
+                  <span className="position-absolute top-0 start-100 translate-middle p-1 bg-danger border border-light rounded-circle" style={{ width: '8px', height: '8px' }}></span>
+                )}
+              </button>
+              
+              <button type="submit" className="btn btn-sm btn-primary bg-accent text-dark fw-bold px-3 ms-2 ms-md-3 rounded-pill flex-shrink-0">Axtar</button>
+            </div>
+          </form>
+          
+          <div className="hero-stats justify-content-center w-100 mt-3">
+            <span>{totalItems || products.length}+</span> aktiv hissə
+            <span className="dot">•</span>
+            <span>10+</span> təsdiqli satıcı
+            <span className="dot">•</span>
+            <span>Bu gün</span> yenilənib
+          </div>
+        </div>
+      </section>
+
+      {/* Detallı Axtarış Modalı */}
+      <Modal
+        open={showFilterModal}
+        title="Detallı axtarış və filtrlər"
+        onClose={() => setShowFilterModal(false)}
+        footer={
+          <div className="d-flex justify-content-between w-100">
+            <button type="button" className="btn btn-outline" onClick={handleResetFilter}>
+              <i className="bi bi-arrow-counterclockwise me-1"></i> Sıfırla
+            </button>
+            <div className="d-flex gap-2">
+              <button type="button" className="btn btn-outline" onClick={() => setShowFilterModal(false)}>Bağla</button>
+              <button type="button" className="btn btn-primary bg-accent text-dark fw-bold px-4" onClick={handleApplyFilter}>
+                Tətbiq et
+              </button>
+            </div>
+          </div>
+        }
+      >
+        <div className="row g-3">
+          <div className="col-md-6">
+            <label className="form-label text-main fw-semibold">Kateqoriya</label>
+            <select
+              className="form-select"
+              value={activeCategoryId || ''}
+              onChange={(e) => {
+                const val = e.target.value ? Number(e.target.value) : null;
+                setActiveCategoryId(val);
+                setFilterBrandId('');
+                setFilterModelId('');
+                setFilterPartTypeId('');
+              }}
+            >
+              <option value="">Bütün kateqoriyalar</option>
+              {categories.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="col-md-6">
+            <label className="form-label text-main fw-semibold">Brend / Marka</label>
+            <select
+              className="form-select"
+              value={filterBrandId}
+              onChange={(e) => {
+                setFilterBrandId(e.target.value);
+                setFilterModelId('');
+              }}
+              disabled={!activeCategoryId || brands.length === 0}
+            >
+              <option value="">{activeCategoryId ? 'Bütün brendlər' : 'Əvvəlcə kateqoriya seçin'}</option>
+              {brands.map(b => (
+                <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="col-md-6">
+            <label className="form-label text-main fw-semibold">Model</label>
+            <select
+              className="form-select"
+              value={filterModelId}
+              onChange={(e) => setFilterModelId(e.target.value)}
+              disabled={!filterBrandId || models.length === 0}
+            >
+              <option value="">{filterBrandId ? 'Bütün modellər' : 'Əvvəlcə brend seçin'}</option>
+              {models.map(m => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="col-md-6">
+            <label className="form-label text-main fw-semibold">Ehtiyat hissəsi növü</label>
+            <select
+              className="form-select"
+              value={filterPartTypeId}
+              onChange={(e) => setFilterPartTypeId(e.target.value)}
+              disabled={!activeCategoryId || partTypes.length === 0}
+            >
+              <option value="">{activeCategoryId ? 'Bütün hissə növləri' : 'Əvvəlcə kateqoriya seçin'}</option>
+              {partTypes.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="col-md-6">
+            <label className="form-label text-main fw-semibold">Keyfiyyət növü</label>
+            <select
+              className="form-select"
+              value={filterQualityTypeId}
+              onChange={(e) => setFilterQualityTypeId(e.target.value)}
+            >
+              <option value="">Bütün keyfiyyətlər</option>
+              {qualityTypes.map(q => (
+                <option key={q.id} value={q.id}>{q.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="col-md-6">
+            <label className="form-label text-main fw-semibold">Sıralama</label>
+            <select
+              className="form-select"
+              value={sortOrder}
+              onChange={(e) => setSortOrder(e.target.value)}
+            >
+              <option value="">Tarixə görə (Ən yeni)</option>
+              <option value="price_asc">Qiymət (Ucuzdan bahaya)</option>
+              <option value="price_desc">Qiymət (Bahadan ucuza)</option>
+              <option value="views_desc">Ən çox baxılan</option>
+            </select>
+          </div>
+
+          <div className="col-md-6">
+            <label className="form-label text-main fw-semibold">Min. qiymət (AZN)</label>
+            <input
+              type="number"
+              className="form-control"
+              placeholder="0"
+              min="0"
+              value={minPrice}
+              onChange={(e) => setMinPrice(e.target.value)}
+            />
+          </div>
+
+          <div className="col-md-6">
+            <label className="form-label text-main fw-semibold">Maks. qiymət (AZN)</label>
+            <input
+              type="number"
+              className="form-control"
+              placeholder="1000"
+              min="0"
+              value={maxPrice}
+              onChange={(e) => setMaxPrice(e.target.value)}
+            />
+          </div>
+        </div>
+      </Modal>
+
+      <section>
+        <div className="section-header" style={{ alignItems: 'center' }}>
+          <div>
+            <div className="section-label">
+              {searchTerm || activeCategoryId ? 'Axtarış nəticələri' : 'Anbarda olanlar'}
+            </div>
+            <h2 className="section-title">
+              {searchTerm || activeCategoryId ? 'Tapılan hissələr' : 'Populyar hissələr'}
+            </h2>
+          </div>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button className="btn-outline" style={{ padding: '0.5rem', borderColor: 'var(--text-muted)' }}><i className="bi bi-grid-fill text-accent"></i></button>
+            <button className="btn-outline" style={{ padding: '0.5rem' }}><i className="bi bi-list"></i></button>
+          </div>
+        </div>
+
+        {activeSellerId && (
+          <div className="d-flex align-items-center justify-content-between p-2 px-3 rounded mb-3" style={{ background: 'var(--accent-dark)', border: '1px solid var(--accent)' }}>
+            <span className="small fw-bold" style={{ color: 'var(--accent)' }}>
+              <i className="bi bi-shop me-2"></i>Seçilmiş satıcı/anbarın elanları (Satıcı #{activeSellerId})
+            </span>
+            <button className="btn btn-sm btn-outline" style={{ borderRadius: '20px', fontSize: '0.8rem', padding: '0.2rem 0.8rem' }} onClick={() => { setActiveSellerId(null); setSearchParams({}); fetchProducts(searchTerm, activeCategoryId, null); }}>
+              <i className="bi bi-x-circle me-1"></i> Filtri sıfırla
+            </button>
+          </div>
+        )}
+
+        <div className="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-4">
+          <div className="d-flex gap-2 overflow-auto hide-scrollbar pb-1 w-100">
+            <button 
+              type="button" 
+              className={`btn-outline ${hasActiveFilters ? 'border-accent text-accent' : ''}`} 
+              style={{ borderRadius: '20px', fontSize: '0.85rem' }}
+              onClick={() => setShowFilterModal(true)}
+            >
+              <i className="bi bi-sliders me-1"></i> Filtrlər {hasActiveFilters && '(Aktiv)'}
+            </button>
+            {hasActiveFilters && (
+              <button
+                type="button"
+                className="btn-outline text-danger"
+                style={{ borderRadius: '20px', fontSize: '0.85rem' }}
+                onClick={handleResetFilter}
+              >
+                <i className="bi bi-x-circle me-1"></i> Filtrləri təmizlə
+              </button>
+            )}
+            <a href="#" onClick={(e) => { e.preventDefault(); setSearchTerm(''); setPage(1); fetchProducts('', activeCategoryId, activeSellerId, 1, pageSize); }} className={`btn-outline ${!searchTerm ? 'bg-accent text-dark fw-bold' : 'text-main'} text-decoration-none`} style={{ borderRadius: '20px', fontSize: '0.85rem', padding: '0.5rem 1.5rem' }}>Hamisi</a>
+            <a href="#" onClick={(e) => { e.preventDefault(); setSearchTerm('Ekran'); setPage(1); fetchProducts('Ekran', activeCategoryId, activeSellerId, 1, pageSize); }} className={`btn-outline ${searchTerm === 'Ekran' ? 'bg-accent text-dark fw-bold' : 'text-main'} text-decoration-none`} style={{ borderRadius: '20px', fontSize: '0.85rem' }}>Ekran</a>
+            <a href="#" onClick={(e) => { e.preventDefault(); setSearchTerm('Batareya'); setPage(1); fetchProducts('Batareya', activeCategoryId, activeSellerId, 1, pageSize); }} className={`btn-outline ${searchTerm === 'Batareya' ? 'bg-accent text-dark fw-bold' : 'text-main'} text-decoration-none`} style={{ borderRadius: '20px', fontSize: '0.85rem' }}>Batareya</a>
+          </div>
+          <div 
+            id="sort-dropdown-container" 
+            style={{ fontSize: '0.85rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}
+            onClick={() => setShowFilterModal(true)}
+          >
+            Sırala: <strong style={{ color: 'var(--text-main)' }}>{sortOrder === 'price_asc' ? 'Ucuzdan bahaya' : sortOrder === 'price_desc' ? 'Bahadan ucuza' : sortOrder === 'views_desc' ? 'Ən çox baxılan' : 'Ən yeni'}</strong> <i className="bi bi-chevron-down"></i>
+          </div>
+        </div>
+
+        <div className="products-grid">
+            {loading ? (
+                <div className="text-center w-100 py-5">
+                    <div className="spinner-border text-accent" role="status">
+                        <span className="visually-hidden">Yüklənir...</span>
+                    </div>
+                </div>
+            ) : products.length > 0 ? (
+                products.map(part => {
+                    const mainImage = (part.images || []).find(img => img.isMain) || (part.images || [])[0];
+                    const isNew = isToday(part.createdDate);
+                    return (
+                        <div key={part.id} className="product-card">
+                            <div className="product-card-top">
+                                <div>
+                                    {isNew && <span className="badge-accent" style={{ marginBottom: '0.5rem', backgroundColor: '#28a745', color: '#fff' }}>Yeni</span>}
+                                </div>
+                                <button className="btn-fav add-to-fav" data-id={part.id}><i className="bi bi-heart"></i></button>
+                            </div>
+                            
+                            <Link to={`/details/${part.id}`} className="product-image text-decoration-none">
+                                {mainImage ? (
+                                    <img src={imageSrc(mainImage.url)} alt={part.title} />
+                                ) : (
+                                    <div style={{ width: '80px', height: '80px', border: '4px solid var(--accent)', borderRadius: '50%', boxShadow: '0 0 20px var(--accent)', opacity: 0.8 }}></div>
+                                )}
+                            </Link>
+                            
+                            <div className="product-meta">
+                                <span className="product-category">{part.partTypeName || "DIGƏR"}</span>
+                                <span className="product-stock">Stokda {part.stockQuantity} ədəd</span>
+                            </div>
+                            
+                            <Link to={`/details/${part.id}`} className="text-decoration-none text-main"><h3 className="product-title">{part.brandName} {part.modelName} {part.title}</h3></Link>
+                            <p className="product-desc">{part.modelName} - {part.qualityTypeName}</p>
+                            
+                            <div className="product-condition">
+                                {part.qualityTypeName}
+                            </div>
+                            
+                            <div className="product-bottom">
+                                <div>
+                                    <div className="product-price">{Math.floor(part.price)} <span>AZN</span></div>
+                                    <div className="product-seller">
+                                        <i className="bi bi-shop"></i> {part.sellerName}
+                                    </div>
+                                </div>
+                                <Link to={`/details/${part.id}`} className="btn-cart text-decoration-none"><i className="bi bi-arrow-right"></i></Link>
+                            </div>
+                        </div>
+                    );
+                })
+            ) : (
+                <div className="text-center py-5" style={{ width: '100%', margin: '2rem 0', border: '1px dashed rgba(255,255,255,0.1)', borderRadius: '10px' }}>
+                    <i className="bi bi-search text-muted" style={{ fontSize: '3rem' }}></i>
+                    <h3 className="mt-3 text-main">Nəticə tapılmadı</h3>
+                </div>
+            )}
+        </div>
+        
+        {/* Pagination UI */}
+        {!loading && totalPages > 1 && (
+            <div className="d-flex justify-content-between align-items-center mt-4">
+              <div>
+                <select 
+                  className="form-select form-select-sm" 
+                  value={pageSize} 
+                  onChange={(e) => {
+                    const newSize = Number(e.target.value);
+                    setPageSize(newSize);
+                    setPage(1);
+                    fetchProducts(searchTerm, activeCategoryId, activeSellerId, 1, newSize);
+                  }}
+                  style={{ width: 'auto', display: 'inline-block' }}
+                >
+                  <option value="10">10 / səhifə</option>
+                  <option value="20">20 / səhifə</option>
+                  <option value="50">50 / səhifə</option>
+                </select>
+              </div>
+              
+              <ul className="pagination pagination-sm mb-0">
+                <li className={`page-item ${page === 1 ? 'disabled' : ''}`}>
+                  <button className="page-link" onClick={() => {
+                    const prev = Math.max(1, page - 1);
+                    setPage(prev);
+                    fetchProducts(searchTerm, activeCategoryId, activeSellerId, prev, pageSize);
+                  }}>Əvvəlki</button>
+                </li>
+                <li className="page-item disabled">
+                  <span className="page-link">{page} / {totalPages}</span>
+                </li>
+                <li className={`page-item ${page === totalPages ? 'disabled' : ''}`}>
+                  <button className="page-link" onClick={() => {
+                    const next = Math.min(totalPages, page + 1);
+                    setPage(next);
+                    fetchProducts(searchTerm, activeCategoryId, activeSellerId, next, pageSize);
+                  }}>Növbəti</button>
+                </li>
+              </ul>
+            </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+export default Home;
