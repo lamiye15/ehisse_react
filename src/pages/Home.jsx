@@ -12,6 +12,24 @@ const isToday = (dateString) => {
            date.getFullYear() === today.getFullYear();
 };
 
+function formatCleanTitle(part) {
+  let model = (part.modelName || '').trim();
+  let brand = (part.brandName || '').trim();
+  let partType = (part.partTypeName || '').trim();
+
+  // Əgər model adı artıq brendlə başlamırsa (məs: "15 Pro" -> "iPhone 15 Pro")
+  let fullModel = model;
+  if (brand && !model.toLowerCase().startsWith(brand.toLowerCase())) {
+    fullModel = `${brand} ${model}`;
+  }
+
+  // Təmiz ad formalaşdırırıq: məs. "iPhone 16 Pro Max Batareya"
+  if (fullModel && partType) {
+    return `${fullModel} ${partType}`;
+  }
+  return part.title || fullModel || 'Ehtiyat hissəsi';
+}
+
 function Home() {
   const [searchParams, setSearchParams] = useSearchParams();
   const initialCategory = searchParams.get('categoryId') ? Number(searchParams.get('categoryId')) : null;
@@ -427,8 +445,9 @@ function Home() {
                                 <span className="product-stock">Stokda {part.stockQuantity} ədəd</span>
                             </div>
                             
-                            <Link to={`/details/${part.id}`} className="text-decoration-none text-main"><h3 className="product-title">{part.brandName} {part.modelName} {part.title}</h3></Link>
-                            <p className="product-desc">{part.modelName} - {part.qualityTypeName}</p>
+                            <Link to={`/details/${part.id}`} className="text-decoration-none text-main">
+                                <h3 className="product-title">{formatCleanTitle(part)}</h3>
+                            </Link>
                             
                             <div className="product-condition">
                                 {part.qualityTypeName}
